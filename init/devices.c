@@ -467,6 +467,36 @@ err:
     return NULL;
 }
 
+static char **parse_mtd_block_device(struct uevent *uevent)
+{
+    int partition_num;
+    const char *partition_name;
+    char *p;
+
+    char **links = malloc(sizeof(char *) * 2);
+    if (!links)
+        return NULL;
+    memset(links, 0, sizeof(char *) * 2);
+
+    partition_num = atoi(strstr(uevent->path, "/mtdblock") + 9);
+    partition_name = mtd_number_to_name(partition_num);
+    if (!partition_name)
+        goto err;
+
+    p = strdup(partition_name);
+    if (!p)
+        goto err;
+    sanitize(p);
+    asprintf(&links[0], "/dev/block/mtd/by-name/%s", p);
+    free(p);
+
+    return links;
+
+err:
+    free(links);
+    return NULL;
+}
+
 static void handle_device(const char *action, const char *devpath,
         const char *path, int block, int major, int minor, char **links)
 {
@@ -542,6 +572,8 @@ static void handle_block_device_event(struct uevent *uevent)
 
     if (!strncmp(uevent->path, "/devices/platform/", 18))
         links = parse_platform_block_device(uevent);
+    else if (strstr(uevent->path, "/mtdblock"))
+        links = parse_mtd_block_device(uevent);
 
     handle_device(uevent->action, devpath, uevent->path, 1,
             uevent->major, uevent->minor, links);
