@@ -18,4 +18,4 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := dumpkey
 LOCAL_SRC_FILES := DumpPublicKey.java
 LOCAL_JAR_MANIFEST := DumpPublicKey.mf
-include $(BUILD_HOST_JAVA_LIBRARY)
+include $(BUILD_SYSTEM)/host_java_library.mk
