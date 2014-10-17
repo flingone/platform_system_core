@@ -716,6 +716,25 @@ static void import_kernel_nv(char *name, int for_emulator)
     }
 }
 
+static void symlink_fstab()
+{
+    char fstab_path[255] = "/fstab.";
+    char fstab_default_path[50] = "/fstab.";
+    int ret = -1;
+
+    // fstab.rk30board.bootmode.unknown
+    strcat(fstab_path, hardware);
+    strcat(fstab_path, ".bootmode.");
+    strcat(fstab_path, bootmode);
+
+    strcat(fstab_default_path, hardware);
+
+    ret = symlink(fstab_path, fstab_default_path);
+    if (ret < 0) {
+        ERROR("%s : failed", __func__);
+    }
+}
+
 static void export_kernel_boot_props(void)
 {
     char tmp[PROP_VALUE_MAX];
@@ -765,6 +784,8 @@ static void export_kernel_boot_props(void)
         property_set("ro.factorytest", "2");
     else
         property_set("ro.factorytest", "0");
+
+    symlink_fstab();
 }
 
 static void process_kernel_cmdline(void)
@@ -959,6 +980,36 @@ static void selinux_initialize(void)
     security_setenforce(is_enforcing);
 }
 
+static void rk_parse_cpu(void)
+{
+    int fd;
+    char buf[64];
+
+    fd = open("/sys/devices/system/cpu/type", O_RDONLY);
+    if (fd >= 0) {
+        int n = read(fd, buf, sizeof(buf) - 1);
+        if (n > 0) {
+            if (buf[n-1] == '\n')
+                n--;
+            buf[n] = 0;
+            property_set("ro.rk.cpu", buf);
+        }
+        close(fd);
+    }
+
+    fd = open("/sys/devices/system/cpu/soc", O_RDONLY);
+    if (fd >= 0) {
+        int n = read(fd, buf, sizeof(buf) - 1);
+        if (n > 0) {
+            if (buf[n-1] == '\n')
+                n--;
+            buf[n] = 0;
+            property_set("ro.rk.soc", buf);
+        }
+        close(fd);
+    }
+}
+
 int main(int argc, char **argv)
 {
     int fd_count = 0;
@@ -1007,6 +1058,8 @@ int main(int argc, char **argv)
     open_devnull_stdio();
     klog_init();
     property_init();
+
+    rk_parse_cpu();
 
     get_hardware_name(hardware, &revision);
 
