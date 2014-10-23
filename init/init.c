@@ -93,14 +93,15 @@ static int have_console;
 static char console_name[PROP_VALUE_MAX] = "/dev/console";
 static time_t process_needs_restart;
 
-static const char *ENV[32];
+
+static const char *ENV[64];
 
 /* add_environment - add "key=value" to the current environment */
 int add_environment(const char *key, const char *val)
 {
     int n;
 
-    for (n = 0; n < 31; n++) {
+    for (n = 0; n < 63; n++) {
         if (!ENV[n]) {
             size_t len = strlen(key) + strlen(val) + 2;
             char *entry = malloc(len);
