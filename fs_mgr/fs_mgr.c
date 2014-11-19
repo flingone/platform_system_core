@@ -297,6 +297,93 @@ static char *fs_getline(char *buf, int size, FILE *file)
     }
 }
 
+
+static char *get_linkname(const char *path)
+{
+    struct stat sb;
+    char *linkname = NULL;
+    ssize_t r;
+
+    if (lstat(path, &sb) == -1) {
+        goto errout;
+    }
+
+    linkname = (char *)malloc(sb.st_size + 1);
+    if (linkname == NULL)
+        goto errout;
+
+    r = readlink(path, linkname, sb.st_size + 1);
+    if (r < 0 || r > sb.st_size)
+        goto errout;
+
+    linkname[sb.st_size] = '\0';
+
+    return linkname;
+
+errout:
+    if (linkname)
+        free(linkname);
+
+    return NULL;
+}
+
+
+static void parse_link_device(struct fstab_rec *rec)
+{
+#define MTD_PATH_FORMAT "/devices/virtual/mtd/mtd%d/mtdblock%d"
+#define EMMC_PATH "/devices/platform/emmc/mmc_host/mmc"
+    char *path = NULL;
+    char *part_name = NULL;
+    int mmc_num;
+    int part_num;
+    char is_emmc = 0;
+
+    if (!fs_mgr_is_voldmanaged(rec))
+        return;
+
+    path = get_linkname(rec->blk_device);
+    if (NULL == path) {
+        ERROR("%s : path = NULL", __func__);
+        goto errout;
+    }
+    ERROR("%s %s: in", __func__, path);
+
+    if (NULL != (part_name = strstr(path, "mtdblock"))) {
+        part_num = atoi(part_name + 8);
+    } else if (NULL != (part_name = strstr(path, "mmcblk"))) {
+        if (0 > sscanf(part_name, "mmcblk%dp%d", &mmc_num, &part_num)) {
+            ERROR("%s : error in parse emmc partnum, %s\n", __func__, strerror(errno));
+            goto errout;
+        }
+        is_emmc = 1;
+    } else {
+        ERROR("%s : error parse path", __func__);
+        goto errout;
+    }
+    free(path);
+    path = NULL;
+
+    if (!is_emmc) {
+        path = calloc(sizeof(char), (strlen(MTD_PATH_FORMAT) + 10));
+        if (path) {
+            sprintf(path, MTD_PATH_FORMAT, part_num, part_num);
+            free(rec->blk_device);
+            rec->blk_device = strdup(path);
+        }
+    } else {
+        free(rec->blk_device);
+        rec->blk_device = strdup((char *)EMMC_PATH);
+        rec->partnum = part_num;
+    }
+
+    ERROR("%s : ---- part_num = %d, path = %s, is_emmc = %d\n", __func__, part_num, path, is_emmc);
+
+errout:
+    if (path)
+        free(path);
+
+}
+
 struct fstab *fs_mgr_read_fstab(const char *fstab_path)
 {
     FILE *fstab_file;
@@ -336,6 +423,7 @@ struct fstab *fs_mgr_read_fstab(const char *fstab_path)
     }
 
     if (!entries) {
+        fclose(fstab_file);
         ERROR("No entries found in fstab\n");
         return 0;
     }
@@ -375,24 +463,28 @@ struct fstab *fs_mgr_read_fstab(const char *fstab_path)
         }
 
         if (!(p = strtok_r(line, delim, &save_ptr))) {
+            fs_mgr_free_fstab(fstab);
             ERROR("Error parsing mount source\n");
             return 0;
         }
         fstab->recs[cnt].blk_device = strdup(p);
 
         if (!(p = strtok_r(NULL, delim, &save_ptr))) {
+            fs_mgr_free_fstab(fstab);
             ERROR("Error parsing mount_point\n");
             return 0;
         }
         fstab->recs[cnt].mount_point = strdup(p);
 
         if (!(p = strtok_r(NULL, delim, &save_ptr))) {
+            fs_mgr_free_fstab(fstab);
             ERROR("Error parsing fs_type\n");
             return 0;
         }
         fstab->recs[cnt].fs_type = strdup(p);
 
         if (!(p = strtok_r(NULL, delim, &save_ptr))) {
+            fs_mgr_free_fstab(fstab);
             ERROR("Error parsing mount_flags\n");
             return 0;
         }
@@ -409,6 +501,7 @@ struct fstab *fs_mgr_read_fstab(const char *fstab_path)
 
         if (!(p = strtok_r(NULL, delim, &save_ptr))) {
             ERROR("Error parsing fs_mgr_options\n");
+            fs_mgr_free_fstab(fstab);
             return 0;
         }
         fstab->recs[cnt].fs_mgr_flags = parse_flags(p, fs_mgr_flags,
@@ -419,6 +512,7 @@ struct fstab *fs_mgr_read_fstab(const char *fstab_path)
         fstab->recs[cnt].partnum = flag_vals.partnum;
         fstab->recs[cnt].swap_prio = flag_vals.swap_prio;
         fstab->recs[cnt].zram_size = flag_vals.zram_size;
+        parse_link_device(&(fstab->recs[cnt]));
         cnt++;
     }
     fclose(fstab_file);
